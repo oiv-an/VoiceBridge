@@ -1,0 +1,9 @@
+VoiceBridge
+Copyright 2026 VoiceBridge contributors
+
+Licensed under the Apache License, Version 2.0. The complete license text is
+included as assets/LICENSE.txt.
+
+This application includes third-party components and can download optional
+third-party model weights. See assets/THIRD_PARTY_NOTICES.md for their notices,
+licenses, attribution requirements, and source links.

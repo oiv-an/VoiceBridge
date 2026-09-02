@@ -1,0 +1,16 @@
+VoiceBridge
+Copyright 2026 VoiceBridge contributors
+
+This product includes software developed by the sherpa-onnx project
+(https://github.com/k2-fsa/sherpa-onnx), licensed under the Apache License 2.0.
+
+The bundled sherpa-onnx Android runtime includes ONNX Runtime
+(https://github.com/microsoft/onnxruntime), licensed under the MIT License.
+
+VoiceBridge uses Google ML Kit on-device Translation and Language Identification.
+Google Translate attribution and applicable Google terms are described in
+THIRD_PARTY_NOTICES.md.
+
+Speech-model weights are not part of the VoiceBridge source code or APK. When
+downloaded by the user, each model remains subject to its upstream license and
+notices described in THIRD_PARTY_NOTICES.md.

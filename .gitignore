@@ -1,0 +1,41 @@
+# Gradle and Kotlin build state
+.gradle/
+.kotlin/
+**/build/
+
+# Android Studio and local SDK configuration
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material and credentials
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+secrets.properties
+*.secrets.properties
+.env
+.env.*
+!.env.example
+google-services.json
+agconnect-services.json
+app/google-services.json
+app/agconnect-services.json
+credentials*.json
+service-account*.json
+
+# Packaged artifacts belong in GitHub Releases, not in source control
+*.apk
+*.aab
+mapping.txt
+
+# Operating-system files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+sherpa-onnx 1.13.6
+
+Source: https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.6
+License: Apache License 2.0
+License source: https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.6/LICENSE
+
+The full Apache License 2.0 text is included in this application package as
+assets/LICENSE.txt. VoiceBridge distributes the sherpa-onnx Android runtime as
+app/libs/sherpa-onnx-1.13.6.aar. sherpa-onnx is not covered by the VoiceBridge
+copyright notice; its respective authors retain their rights.
+
+The AAR also contains ONNX Runtime 1.27.1. Its MIT license is included as
+assets/licenses/ONNX-Runtime-1.27.1-MIT.txt. ONNX Runtime's upstream third-party
+notices are available at:
+https://github.com/microsoft/onnxruntime/blob/v1.27.1/ThirdPartyNotices.txt
