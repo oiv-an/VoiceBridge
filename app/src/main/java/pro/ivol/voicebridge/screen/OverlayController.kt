@@ -785,6 +785,8 @@ private class HoldProgressTextView(context: Context) : TextView(context) {
 internal class TranslationOverlayView(context: Context) : View(context) {
     private data class ScrollOffset(var x: Float = 0f, var y: Float = 0f)
 
+    private data class LabelOffset(val x: Float, val y: Float)
+
     private data class WidthFittedLayout(
         val width: Int,
         val layout: StaticLayout,
@@ -824,6 +826,7 @@ internal class TranslationOverlayView(context: Context) : View(context) {
     private var blocks: List<TranslationBlock> = emptyList()
     private val contentOffsets = HashMap<String, ScrollOffset>()
     private val pendingOffsets = HashMap<String, ScrollOffset>()
+    private val labelOffsets = HashMap<Int, LabelOffset>()
     private var scrollFrameScheduled = false
 
     private val applyPendingScroll = Runnable {
@@ -851,6 +854,7 @@ internal class TranslationOverlayView(context: Context) : View(context) {
         scrollFrameScheduled = false
         pendingOffsets.clear()
         contentOffsets.clear()
+        labelOffsets.clear()
         val seen = HashSet<String>()
         blocks = value.asSequence()
             .map { block ->
@@ -879,6 +883,11 @@ internal class TranslationOverlayView(context: Context) : View(context) {
         return blocks
     }
 
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        if (width != oldWidth || height != oldHeight) labelOffsets.clear()
+    }
+
     fun hasBlocks(): Boolean = blocks.isNotEmpty()
 
     fun moveWithContent(scrollGroupId: String?, deltaX: Int, deltaY: Int): Boolean {
@@ -901,6 +910,8 @@ internal class TranslationOverlayView(context: Context) : View(context) {
 
         updateFullDisplayBounds()
         getLocationOnScreen(viewLocationOnScreen)
+        val placementBounds = visiblePlacementBounds()
+        updateAttributionBounds(placementBounds)
         val sourceWidth = fullDisplayBounds.width().coerceAtLeast(1).toFloat()
         val sourceHeight = fullDisplayBounds.height().coerceAtLeast(1).toFloat()
         val horizontalPadding = dp(3)
@@ -908,10 +919,24 @@ internal class TranslationOverlayView(context: Context) : View(context) {
         val horizontalCover = dp(2).toFloat()
         val verticalCover = dp(1).toFloat()
         val radius = dp(3).toFloat()
+        val labelGap = dp(LABEL_GAP_DP).toFloat()
+        val maximumPlacementShift = dp(MAX_LABEL_PLACEMENT_SHIFT_DP).toFloat()
+        val occupiedLabels = ArrayList<OverlayLabelBox>(blocks.size + 1).apply {
+            if (!attributionRect.isEmpty) {
+                add(
+                    OverlayLabelBox(
+                        left = attributionRect.left,
+                        top = attributionRect.top,
+                        right = attributionRect.right,
+                        bottom = attributionRect.bottom,
+                    ),
+                )
+            }
+        }
 
-        blocks.forEach { block ->
+        blocks.forEachIndexed { index, block ->
             val translated = block.translation.trim()
-            if (translated.isEmpty()) return@forEach
+            if (translated.isEmpty()) return@forEachIndexed
 
             val normalizedLeft = block.x.coerceIn(0f, 1f)
             val normalizedTop = block.y.coerceIn(0f, 1f)
@@ -925,13 +950,24 @@ internal class TranslationOverlayView(context: Context) : View(context) {
                 viewLocationOnScreen[1] + (contentOffset?.y ?: 0f)
             val anchorWidth = max(dp(8).toFloat(), normalizedWidth * sourceWidth)
             val anchorHeight = max(dp(6).toFloat(), normalizedHeight * sourceHeight)
-            if (anchorTop + anchorHeight < 0f || anchorTop > height.toFloat()) return@forEach
+            if (
+                anchorLeft + anchorWidth < placementBounds.left ||
+                anchorLeft > placementBounds.right ||
+                anchorTop + anchorHeight < placementBounds.top ||
+                anchorTop > placementBounds.bottom
+            ) {
+                return@forEachIndexed
+            }
 
             val requestedLeft = anchorLeft - horizontalCover
             val requestedWidth = anchorWidth + horizontalCover * 2f
             val initialLabelWidth = requestedWidth
-                .coerceIn(1f, width.toFloat())
+                .coerceIn(1f, placementBounds.width)
                 .let { ceil(it).toInt() }
+            val maximumLabelWidth = min(
+                placementBounds.width.roundToInt().coerceAtLeast(1),
+                initialLabelWidth + dp(MAX_HORIZONTAL_EXPANSION_DP),
+            )
             val targetTextHeight = max(
                 dp(12),
                 (anchorHeight - verticalPadding * 2f).roundToInt(),
@@ -939,16 +975,19 @@ internal class TranslationOverlayView(context: Context) : View(context) {
             val fitted = fitWithHorizontalExpansion(
                 text = translated,
                 initialLabelWidth = initialLabelWidth,
-                maximumLabelWidth = width,
+                maximumLabelWidth = maximumLabelWidth,
                 horizontalPadding = horizontalPadding,
                 targetHeight = targetTextHeight,
             )
             val labelWidth = fitted.width
             val layout = fitted.layout
 
-            val labelHeight = max(
-                (anchorHeight + verticalCover * 2f).roundToInt(),
-                layout.height + verticalPadding * 2,
+            val labelHeight = min(
+                placementBounds.height.roundToInt().coerceAtLeast(1),
+                max(
+                    (anchorHeight + verticalCover * 2f).roundToInt(),
+                    layout.height + verticalPadding * 2,
+                ),
             )
             val left = expandedLabelLeft(
                 requestedLeft = requestedLeft,
@@ -956,15 +995,49 @@ internal class TranslationOverlayView(context: Context) : View(context) {
                 labelWidth = labelWidth,
                 viewWidth = width,
             )
-            val top = (anchorTop - verticalCover).coerceIn(
-                0f,
-                (height - labelHeight).coerceAtLeast(0).toFloat(),
+            val desiredLabel = OverlayLabelBox(
+                left = left,
+                top = anchorTop - verticalCover,
+                right = left + labelWidth,
+                bottom = anchorTop - verticalCover + labelHeight,
             )
-            labelRect.set(left, top, left + labelWidth, top + labelHeight)
+            val previousOffset = labelOffsets[index]
+            val previousLabel = previousOffset?.let { offset ->
+                desiredLabel.movedTo(
+                    newLeft = desiredLabel.left + offset.x,
+                    newTop = desiredLabel.top + offset.y,
+                )
+            }
+            val placedLabel = previousLabel?.takeIf { previous ->
+                isOverlayLabelPlacementAvailable(
+                    candidate = previous,
+                    occupied = occupiedLabels,
+                    bounds = placementBounds,
+                    gap = labelGap,
+                )
+            } ?: resolveOverlayLabelPlacement(
+                desired = desiredLabel,
+                occupied = occupiedLabels,
+                bounds = placementBounds,
+                gap = labelGap,
+                maximumShift = maximumPlacementShift,
+            ) ?: return@forEachIndexed
+            labelOffsets[index] = LabelOffset(
+                x = placedLabel.left - desiredLabel.left,
+                y = placedLabel.top - desiredLabel.top,
+            )
+            occupiedLabels += placedLabel
+            labelRect.set(
+                placedLabel.left,
+                placedLabel.top,
+                placedLabel.right,
+                placedLabel.bottom,
+            )
 
             canvas.drawRoundRect(labelRect, radius, radius, backgroundPaint)
             canvas.drawRoundRect(labelRect, radius, radius, borderPaint)
             canvas.save()
+            canvas.clipRect(labelRect)
             canvas.translate(labelRect.left + horizontalPadding, labelRect.top + verticalPadding)
             layout.draw(canvas)
             canvas.restore()
@@ -973,30 +1046,56 @@ internal class TranslationOverlayView(context: Context) : View(context) {
         drawAttribution(canvas)
     }
 
-    private fun drawAttribution(canvas: Canvas) {
+    private fun visiblePlacementBounds(): OverlayLabelBox {
         getWindowVisibleDisplayFrame(visibleDisplayFrame)
+        val visibleLeft = (visibleDisplayFrame.left - viewLocationOnScreen[0])
+            .toFloat()
+            .coerceIn(0f, width.toFloat())
+        val visibleTop = (visibleDisplayFrame.top - viewLocationOnScreen[1])
+            .toFloat()
+            .coerceIn(0f, height.toFloat())
         val visibleRight = (visibleDisplayFrame.right - viewLocationOnScreen[0])
             .toFloat()
             .coerceIn(0f, width.toFloat())
         val visibleBottom = (visibleDisplayFrame.bottom - viewLocationOnScreen[1])
             .toFloat()
             .coerceIn(0f, height.toFloat())
+        return if (visibleRight > visibleLeft && visibleBottom > visibleTop) {
+            OverlayLabelBox(visibleLeft, visibleTop, visibleRight, visibleBottom)
+        } else {
+            OverlayLabelBox(0f, 0f, width.toFloat(), height.toFloat())
+        }
+    }
+
+    private fun updateAttributionBounds(placementBounds: OverlayLabelBox) {
         val horizontalPadding = dp(5).toFloat()
         val verticalPadding = dp(3).toFloat()
         val margin = dp(8).toFloat()
         val fontMetrics = attributionTextPaint.fontMetrics
         val textWidth = attributionTextPaint.measureText(attributionText)
         val textHeight = fontMetrics.descent - fontMetrics.ascent
-        val tagWidth = textWidth + horizontalPadding * 2f
-        val tagHeight = textHeight + verticalPadding * 2f
-        val right = (visibleRight - margin).coerceAtLeast(tagWidth)
-        val bottom = (visibleBottom - margin).coerceAtLeast(tagHeight)
+        val tagWidth = min(placementBounds.width, textWidth + horizontalPadding * 2f)
+        val tagHeight = min(placementBounds.height, textHeight + verticalPadding * 2f)
+        val right = (placementBounds.right - margin).coerceIn(
+            placementBounds.left + tagWidth,
+            placementBounds.right,
+        )
+        val bottom = (placementBounds.bottom - margin).coerceIn(
+            placementBounds.top + tagHeight,
+            placementBounds.bottom,
+        )
         attributionRect.set(
             right - tagWidth,
             bottom - tagHeight,
             right,
             bottom,
         )
+    }
+
+    private fun drawAttribution(canvas: Canvas) {
+        val horizontalPadding = dp(5).toFloat()
+        val verticalPadding = dp(3).toFloat()
+        val fontMetrics = attributionTextPaint.fontMetrics
         val radius = dp(3).toFloat()
         canvas.drawRoundRect(
             attributionRect,
@@ -1124,6 +1223,176 @@ internal class TranslationOverlayView(context: Context) : View(context) {
         const val MAX_TEXT_SIZE_SP = 13.5f
         const val MIN_TEXT_SIZE_SP = 9f
         const val TEXT_SIZE_STEP_SP = 0.5f
+        const val LABEL_GAP_DP = 2
+        const val MAX_LABEL_PLACEMENT_SHIFT_DP = 64
+        const val MAX_HORIZONTAL_EXPANSION_DP = 96
         val WHITESPACE_REGEX = Regex("\\s+")
     }
 }
+
+internal data class OverlayLabelBox(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+) {
+    val width: Float get() = right - left
+    val height: Float get() = bottom - top
+
+    fun movedTo(newLeft: Float, newTop: Float): OverlayLabelBox = copy(
+        left = newLeft,
+        top = newTop,
+        right = newLeft + width,
+        bottom = newTop + height,
+    )
+}
+
+/**
+ * Keeps translated labels readable when Android exposes several small text anchors close
+ * together. The nearest free position reachable on either axis wins; overlap is never used as
+ * a fallback.
+ */
+internal fun resolveOverlayLabelPlacement(
+    desired: OverlayLabelBox,
+    occupied: List<OverlayLabelBox>,
+    bounds: OverlayLabelBox,
+    gap: Float,
+    maximumShift: Float,
+): OverlayLabelBox? {
+    val values = listOf(
+        desired.left,
+        desired.top,
+        desired.right,
+        desired.bottom,
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        bounds.bottom,
+        gap,
+        maximumShift,
+    )
+    if (values.any { !it.isFinite() }) return null
+    if (
+        desired.width <= 0f || desired.height <= 0f ||
+        bounds.width <= 0f || bounds.height <= 0f ||
+        desired.width > bounds.width || desired.height > bounds.height
+    ) {
+        return null
+    }
+
+    val safeGap = gap.coerceAtLeast(0f)
+    val start = desired.movedTo(
+        newLeft = desired.left.coerceIn(bounds.left, bounds.right - desired.width),
+        newTop = desired.top.coerceIn(bounds.top, bounds.bottom - desired.height),
+    )
+    if (isOverlayLabelPlacementAvailable(start, occupied, bounds, safeGap)) return start
+
+    fun moveUntilFree(direction: Int): OverlayLabelBox? {
+        var candidate = start
+        repeat(occupied.size + 1) {
+            var collisionFound = false
+            var boundary = when (direction) {
+                MOVE_DOWN, MOVE_RIGHT -> Float.NEGATIVE_INFINITY
+                MOVE_UP, MOVE_LEFT -> Float.POSITIVE_INFINITY
+                else -> return null
+            }
+            occupied.forEach { other ->
+                if (overlayLabelBoxesOverlap(candidate, other, safeGap)) {
+                    collisionFound = true
+                    boundary = when (direction) {
+                        MOVE_DOWN -> max(boundary, other.bottom)
+                        MOVE_UP -> min(boundary, other.top)
+                        MOVE_RIGHT -> max(boundary, other.right)
+                        MOVE_LEFT -> min(boundary, other.left)
+                        else -> boundary
+                    }
+                }
+            }
+            if (!collisionFound) return candidate
+
+            candidate = when (direction) {
+                MOVE_DOWN -> candidate.movedTo(
+                    candidate.left,
+                    boundary + safeGap,
+                )
+
+                MOVE_UP -> candidate.movedTo(
+                    candidate.left,
+                    boundary - safeGap - candidate.height,
+                )
+
+                MOVE_RIGHT -> candidate.movedTo(
+                    boundary + safeGap,
+                    candidate.top,
+                )
+
+                MOVE_LEFT -> candidate.movedTo(
+                    boundary - safeGap - candidate.width,
+                    candidate.top,
+                )
+
+                else -> return null
+            }
+            if (!overlayLabelBoxIsInside(candidate, bounds)) return null
+        }
+        return null
+    }
+
+    return listOfNotNull(
+        moveUntilFree(MOVE_DOWN),
+        moveUntilFree(MOVE_UP),
+        moveUntilFree(MOVE_RIGHT),
+        moveUntilFree(MOVE_LEFT),
+    ).minByOrNull { candidate ->
+        hypot(
+            (candidate.left - start.left).toDouble(),
+            (candidate.top - start.top).toDouble(),
+        )
+    }?.takeIf { candidate ->
+        hypot(
+            (candidate.left - start.left).toDouble(),
+            (candidate.top - start.top).toDouble(),
+        ) <= maximumShift.coerceAtLeast(0f).toDouble()
+    }
+}
+
+internal fun isOverlayLabelPlacementAvailable(
+    candidate: OverlayLabelBox,
+    occupied: List<OverlayLabelBox>,
+    bounds: OverlayLabelBox,
+    gap: Float,
+): Boolean {
+    if (!overlayLabelBoxIsInside(candidate, bounds)) return false
+    val safeGap = gap.coerceAtLeast(0f)
+    return occupied.none { other -> overlayLabelBoxesOverlap(candidate, other, safeGap) }
+}
+
+private fun overlayLabelBoxIsInside(candidate: OverlayLabelBox, bounds: OverlayLabelBox): Boolean =
+    listOf(
+        candidate.left,
+        candidate.top,
+        candidate.right,
+        candidate.bottom,
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        bounds.bottom,
+    ).all { it.isFinite() } &&
+        candidate.width > 0f && candidate.height > 0f &&
+        bounds.width > 0f && bounds.height > 0f &&
+        candidate.left >= bounds.left && candidate.top >= bounds.top &&
+        candidate.right <= bounds.right && candidate.bottom <= bounds.bottom
+
+private fun overlayLabelBoxesOverlap(
+    first: OverlayLabelBox,
+    second: OverlayLabelBox,
+    gap: Float,
+): Boolean = first.left < second.right + gap &&
+    first.right > second.left - gap &&
+    first.top < second.bottom + gap &&
+    first.bottom > second.top - gap
+
+private const val MOVE_DOWN = 0
+private const val MOVE_UP = 1
+private const val MOVE_RIGHT = 2
+private const val MOVE_LEFT = 3

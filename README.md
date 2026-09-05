@@ -9,7 +9,7 @@ face-to-face Russian, English, and Vietnamese conversations. Hold the button
 for the language being spoken, talk, release, correct the transcript if needed,
 and show or play the translation.
 
-The current release is **0.10.4**. Download the signed APK from
+The current release is **0.10.5**. Download the signed APK from
 [GitHub Releases](https://github.com/oiv-an/VoiceBridge/releases/latest), and see
 the [changelog](CHANGELOG.md) for version history.
 
@@ -38,7 +38,7 @@ the [changelog](CHANGELOG.md) for version history.
 
 Conversation-context translation is planned in
 [CONVERSATION_MODE_PLAN.md](CONVERSATION_MODE_PLAN.md); it is not implemented in
-0.10.4.
+0.10.5.
 
 ## Install
 
@@ -50,7 +50,7 @@ Requirements:
 - roughly 750 MB plus temporary download space if the complete offline bundle is
   installed
 
-1. Download `VoiceBridge-0.10.4.apk` from the latest GitHub release.
+1. Download `VoiceBridge-0.10.5.apk` from the latest GitHub release.
 2. Allow installation from the browser or file manager when Android asks, then
    install the APK.
 3. Grant microphone access when you first use push-to-talk.
@@ -155,10 +155,10 @@ Run the same checks as CI:
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-The current JVM suite contains 172 unit tests. The debug APK is written to:
+The current JVM suite contains 178 unit tests. The debug APK is written to:
 
 ```text
-app/build/outputs/apk/debug/VoiceBridge-0.10.4.apk
+app/build/outputs/apk/debug/VoiceBridge-0.10.5.apk
 ```
 
 ### Signed release build

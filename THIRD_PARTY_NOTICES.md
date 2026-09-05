@@ -1,6 +1,6 @@
 # Third-party notices
 
-Last updated for VoiceBridge 0.10.4.
+Last updated for VoiceBridge 0.10.5.
 
 VoiceBridge's original source code is Apache-2.0, but that license does not
 relicense third-party libraries, services, model exports, or model weights.
